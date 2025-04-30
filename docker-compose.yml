@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: ski-sync-postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ski_sync
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: ski-sync-rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"  # AMQP protocol port
+      - "15672:15672"  # Management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  influxdb:
+    image: influxdb:2.6-alpine
+    container_name: ski-sync-influxdb
+    restart: always
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+      - DOCKER_INFLUXDB_INIT_ORG=ski-sync-org
+      - DOCKER_INFLUXDB_INIT_BUCKET=ski-sync-bucket
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+
+  # Service pour exécuter les migrations Prisma
+  migrations:
+    build: 
+      context: .
+      dockerfile: ./prisma/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ski_sync?schema=public
+    depends_on:
+      - postgres
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    container_name: ski-sync-api-gateway
+    restart: always
+    ports:
+      - "${API_GATEWAY_PORT:-3000}:3000" # Use env var or default
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_USER_QUEUE: ${RABBITMQ_USER_QUEUE}
+      RABBITMQ_STATISTICS_QUEUE: ${RABBITMQ_STATISTICS_QUEUE}
+      USER_SERVICE_PORT: ${USER_SERVICE_PORT}
+      # Add any other necessary environment variables
+    depends_on:
+      - postgres
+      - rabbitmq
+      # Add user-service and statistics-service if they need to be up first
+
+  user-service:
+    build:
+      context: .
+      # Assuming a similar Dockerfile structure
+      dockerfile: apps/user-service/Dockerfile # Needs to be created
+    container_name: ski-sync-user-service
+    restart: always
+    # No ports exposed directly, communication via RabbitMQ/Internal
+    ports:
+      - "${USER_SERVICE_PORT:-3001}:3001"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_USER_QUEUE: ${RABBITMQ_USER_QUEUE}
+      USER_SERVICE_PORT: ${USER_SERVICE_PORT}
+      # Add any other necessary environment variables
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  statistics-service:
+    build:
+      context: .
+      # Assuming a similar Dockerfile structure
+      dockerfile: apps/statistics-service/Dockerfile # Needs to be created
+    container_name: ski-sync-statistics-service
+    restart: always
+    # No ports exposed directly, communication via RabbitMQ/Internal
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_STATISTICS_QUEUE: ${RABBITMQ_STATISTICS_QUEUE}
+      INFLUXDB_URL: ${INFLUXDB_URL}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+      # Add any other necessary environment variables
+    depends_on:
+      - postgres
+      - rabbitmq
+      - influxdb
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  influxdb_data: 
