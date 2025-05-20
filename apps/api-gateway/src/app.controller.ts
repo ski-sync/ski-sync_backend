@@ -1,10 +1,10 @@
-import { Controller, Post, Body, Get, Param, Patch, Delete, UseGuards, Inject } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Patch, Delete, UseGuards, Inject, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RegisterDto, LoginDto, AuthResponseDto } from '@shared/dto/auth.dto';
 import { UpdateUserDto, UserResponseDto } from '@shared/dto/user.dto';
 import { LogActivityDto, GetUserStatsDto, ActivityResponseDto } from '@shared/dto/statistics.dto';
-import { Observable } from 'rxjs';
+import { Observable, catchError, firstValueFrom } from 'rxjs';
 import { 
   ApiTags, 
   ApiOperation, 
@@ -29,9 +29,27 @@ export class AppController {
   @ApiResponse({ status: 400, description: 'Données d\'entrée invalides' })
   @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
   @Post('users/register')
-  async register(@Body() registerDto: RegisterDto): Promise<Observable<AuthResponseDto>> {
+  async register(@Body() registerDto: RegisterDto): Promise<AuthResponseDto> {
     console.log('API Gateway - Register request received:', registerDto);
-    return this.userClient.send('register', registerDto);
+    try {
+      return await firstValueFrom(
+        this.userClient.send('register', registerDto)
+      );
+    } catch (error) {
+      console.error('Registration error:', error);
+      if (error.message === 'Email already exists') {
+        throw new BadRequestException({
+          statusCode: 409,
+          message: 'Email already exists',
+          error: 'Conflict'
+        });
+      }
+      throw new BadRequestException({
+        statusCode: 400,
+        message: error.message || 'Invalid registration data',
+        error: 'Bad Request'
+      });
+    }
   }
 
   @ApiTags('Authentication')
@@ -39,9 +57,27 @@ export class AppController {
   @ApiResponse({ status: 200, description: 'Connexion réussie', type: AuthResponseDto })
   @ApiResponse({ status: 401, description: 'Identifiants invalides' })
   @Post('users/login')
-  async login(@Body() loginDto: LoginDto): Promise<Observable<AuthResponseDto>> {
+  async login(@Body() loginDto: LoginDto): Promise<AuthResponseDto> {
     console.log('API Gateway - Login request received:', loginDto);
-    return this.userClient.send('login', loginDto);
+    try {
+      return await firstValueFrom(
+        this.userClient.send('login', loginDto)
+      );
+    } catch (error) {
+      console.error('Login error:', error);
+      if (error.message === 'Invalid credentials') {
+        throw new BadRequestException({
+          statusCode: 401,
+          message: 'Invalid credentials',
+          error: 'Unauthorized'
+        });
+      }
+      throw new BadRequestException({
+        statusCode: 400,
+        message: error.message || 'Invalid login data',
+        error: 'Bad Request'
+      });
+    }
   }
 
   // Routes protégées pour les utilisateurs
@@ -140,5 +176,29 @@ export class AppController {
   async getSystemStats(): Promise<Observable<any>> {
     console.log('API Gateway - Get system stats request received');
     return this.statisticsClient.send('statistics.getSystemStats', {});
+  }
+
+  @ApiTags('Statistics')
+  @ApiOperation({ summary: 'Récupérer les données GeoJSON des stations' })
+  @ApiResponse({ status: 200, description: 'Données GeoJSON des stations' })
+  @ApiResponse({ status: 401, description: 'Non autorisé' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('statistics/geojson')
+  async getGeojson(): Promise<any> {
+    console.log('API Gateway - Get GeoJSON request received');
+    try {
+      const response = await firstValueFrom(
+        this.statisticsClient.send('geojson.get', {})
+      );
+      return response;
+    } catch (error) {
+      console.error('Error getting GeoJSON:', error);
+      throw new BadRequestException({
+        statusCode: 500,
+        message: 'Error retrieving GeoJSON data',
+        error: 'Internal Server Error'
+      });
+    }
   }
 } 

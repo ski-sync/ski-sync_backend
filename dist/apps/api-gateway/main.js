@@ -21,7 +21,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AppController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -30,6 +30,7 @@ const jwt_auth_guard_1 = __webpack_require__(/*! ./guards/jwt-auth.guard */ "./a
 const auth_dto_1 = __webpack_require__(/*! @shared/dto/auth.dto */ "./shared/dto/auth.dto.ts");
 const user_dto_1 = __webpack_require__(/*! @shared/dto/user.dto */ "./shared/dto/user.dto.ts");
 const statistics_dto_1 = __webpack_require__(/*! @shared/dto/statistics.dto */ "./shared/dto/statistics.dto.ts");
+const rxjs_1 = __webpack_require__(/*! rxjs */ "rxjs");
 const swagger_1 = __webpack_require__(/*! @nestjs/swagger */ "@nestjs/swagger");
 let AppController = class AppController {
     constructor(userClient, statisticsClient) {
@@ -38,11 +39,45 @@ let AppController = class AppController {
     }
     async register(registerDto) {
         console.log('API Gateway - Register request received:', registerDto);
-        return this.userClient.send('register', registerDto);
+        try {
+            return await (0, rxjs_1.firstValueFrom)(this.userClient.send('register', registerDto));
+        }
+        catch (error) {
+            console.error('Registration error:', error);
+            if (error.message === 'Email already exists') {
+                throw new common_1.BadRequestException({
+                    statusCode: 409,
+                    message: 'Email already exists',
+                    error: 'Conflict'
+                });
+            }
+            throw new common_1.BadRequestException({
+                statusCode: 400,
+                message: error.message || 'Invalid registration data',
+                error: 'Bad Request'
+            });
+        }
     }
     async login(loginDto) {
         console.log('API Gateway - Login request received:', loginDto);
-        return this.userClient.send('login', loginDto);
+        try {
+            return await (0, rxjs_1.firstValueFrom)(this.userClient.send('login', loginDto));
+        }
+        catch (error) {
+            console.error('Login error:', error);
+            if (error.message === 'Invalid credentials') {
+                throw new common_1.BadRequestException({
+                    statusCode: 401,
+                    message: 'Invalid credentials',
+                    error: 'Unauthorized'
+                });
+            }
+            throw new common_1.BadRequestException({
+                statusCode: 400,
+                message: error.message || 'Invalid login data',
+                error: 'Bad Request'
+            });
+        }
     }
     async getUsers() {
         console.log('API Gateway - Get users request received');
@@ -71,6 +106,21 @@ let AppController = class AppController {
     async getSystemStats() {
         console.log('API Gateway - Get system stats request received');
         return this.statisticsClient.send('statistics.getSystemStats', {});
+    }
+    async getGeojson() {
+        console.log('API Gateway - Get GeoJSON request received');
+        try {
+            const response = await (0, rxjs_1.firstValueFrom)(this.statisticsClient.send('geojson.get', {}));
+            return response;
+        }
+        catch (error) {
+            console.error('Error getting GeoJSON:', error);
+            throw new common_1.BadRequestException({
+                statusCode: 500,
+                message: 'Error retrieving GeoJSON data',
+                error: 'Internal Server Error'
+            });
+        }
     }
 };
 exports.AppController = AppController;
@@ -196,6 +246,18 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", typeof (_q = typeof Promise !== "undefined" && Promise) === "function" ? _q : Object)
 ], AppController.prototype, "getSystemStats", null);
+__decorate([
+    (0, swagger_1.ApiTags)('Statistics'),
+    (0, swagger_1.ApiOperation)({ summary: 'Récupérer les données GeoJSON des stations' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Données GeoJSON des stations' }),
+    (0, swagger_1.ApiResponse)({ status: 401, description: 'Non autorisé' }),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('statistics/geojson'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", typeof (_r = typeof Promise !== "undefined" && Promise) === "function" ? _r : Object)
+], AppController.prototype, "getGeojson", null);
 exports.AppController = AppController = __decorate([
     (0, swagger_1.ApiTags)('API'),
     (0, common_1.Controller)(),
@@ -725,6 +787,16 @@ module.exports = require("class-validator");
 /***/ ((module) => {
 
 module.exports = require("reflect-metadata");
+
+/***/ }),
+
+/***/ "rxjs":
+/*!***********************!*\
+  !*** external "rxjs" ***!
+  \***********************/
+/***/ ((module) => {
+
+module.exports = require("rxjs");
 
 /***/ })
 
